@@ -404,6 +404,24 @@ openvzReadMemConf(virDomainDefPtr def, virJSONValuePtr ctconf)
             def->mem.hard_limit = limit * kb_per_pages;
     }
 
+    if (def->mem.soft_limit == 0 && def->mem.hard_limit == 0) {
+        /* check for VSwap containers memory limit */
+        virJSONValuePtr physpages = virJSONValueObjectGet(ctconf, "physpages");
+        if (physpages) {
+            if (virJSONValueObjectGetNumberUlong(physpages, "limit", &limit) < 0) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("Could not parse memory limit "
+                                 "for container %d"), def->id);
+                goto error;
+            }
+
+            if (limit != LONG_MAX) {
+                def->mem.max_balloon = limit * kb_per_pages;
+                def->mem.cur_balloon = def->mem.max_balloon;
+            }
+        }
+    }
+
     return 0;
 error:
     return -1;
