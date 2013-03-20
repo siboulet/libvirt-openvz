@@ -127,47 +127,6 @@ int openvzExtractVersion(struct openvz_driver *driver)
     return 0;
 }
 
-
-/* Parse config values of the form barrier:limit into barrier and limit */
-static int
-openvzParseBarrierLimit(const char* value,
-                        unsigned long long *barrier,
-                        unsigned long long *limit)
-{
-    char *token;
-    char *saveptr = NULL;
-    char *str = strdup(value);
-
-    if (str == NULL) {
-        virReportOOMError();
-        goto error;
-    }
-
-    token = strtok_r(str, ":", &saveptr);
-    if (token == NULL) {
-        goto error;
-    } else {
-        if (barrier != NULL) {
-            if (virStrToLong_ull(token, NULL, 10, barrier))
-                goto error;
-        }
-    }
-    token = strtok_r(NULL, ":", &saveptr);
-    if (token == NULL) {
-        goto error;
-    } else {
-        if (limit != NULL) {
-            if (virStrToLong_ull(token, NULL, 10, limit))
-                goto error;
-        }
-    }
-    return 0;
-error:
-    VIR_FREE(str);
-    return -1;
-}
-
-
 static int openvzDefaultConsoleType(const char *ostype ATTRIBUTE_UNUSED,
                                     virArch arch ATTRIBUTE_UNUSED)
 {
@@ -217,42 +176,34 @@ no_memory:
 
 int
 openvzReadNetworkConf(virDomainDefPtr def,
-                      int veid) {
+                      virJSONValuePtr ctconf) {
     int ret;
     virDomainNetDefPtr net = NULL;
+    int count;
     char *temp = NULL;
     char *token, *saveptr = NULL;
 
-    /*parse routing network configuration*
-     * Sample from config:
-     *   IP_ADDRESS="1.1.1.1 1.1.1.2"
-     *   splited IPs by space
-     */
-    ret = openvzReadVPSConfigParam(veid, "IP_ADDRESS", &temp);
-    if (ret < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR,
-                       _("Could not read 'IP_ADDRESS' from config for container %d"),
-                       veid);
-        goto error;
-    } else if (ret > 0) {
-        token = strtok_r(temp, " ", &saveptr);
-        while (token != NULL) {
-            if (VIR_ALLOC(net) < 0)
-                goto no_memory;
+    virJSONValuePtr ip_addresses = virJSONValueObjectGet(ctconf, "ip");
 
-            net->type = VIR_DOMAIN_NET_TYPE_ETHERNET;
-            net->data.ethernet.ipaddr = strdup(token);
+    count = virJSONValueArraySize(ip_addresses);
+    for (int i = 0; i < count; ++i) {
+        const char *ip = virJSONValueGetString(virJSONValueArrayGet(ip_addresses, i));
+        if (!ip)
+            goto error;
 
-            if (net->data.ethernet.ipaddr == NULL)
-                goto no_memory;
+        if (VIR_ALLOC(net) < 0)
+            goto no_memory;
 
-            if (VIR_REALLOC_N(def->nets, def->nnets + 1) < 0)
-                goto no_memory;
-            def->nets[def->nnets++] = net;
-            net = NULL;
+        net->type = VIR_DOMAIN_NET_TYPE_ETHERNET;
+        net->data.ethernet.ipaddr = strdup(ip);
 
-            token = strtok_r(NULL, " ", &saveptr);
-        }
+        if (net->data.ethernet.ipaddr == NULL)
+            goto no_memory;
+
+        if (VIR_REALLOC_N(def->nets, def->nnets + 1) < 0)
+            goto no_memory;
+        def->nets[def->nnets++] = net;
+        net = NULL;
     }
 
     /*parse bridge devices*/
@@ -260,11 +211,11 @@ openvzReadNetworkConf(virDomainDefPtr def,
      *NETIF="ifname=eth10,mac=00:18:51:C1:05:EE,host_ifname=veth105.10,host_mac=00:18:51:8F:D9:F3"
      *devices splited by ';'
      */
-    ret = openvzReadVPSConfigParam(veid, "NETIF", &temp);
+    ret = openvzReadVPSConfigParam(def->id, "NETIF", &temp);
     if (ret < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("Could not read 'NETIF' from config for container %d"),
-                       veid);
+                       def->id);
         goto error;
     } else if (ret > 0) {
         token = strtok_r(temp, ";", &saveptr);
@@ -360,58 +311,14 @@ error:
     return -1;
 }
 
-
-/* utility function to replace 'from' by 'to' in 'str' */
-static char*
-openvz_replace(const char* str,
-               const char* from,
-               const char* to) {
-    const char* offset = NULL;
-    const char* str_start = str;
-    int to_len;
-    int from_len;
-    virBuffer buf = VIR_BUFFER_INITIALIZER;
-
-    if ((!from) || (!to))
-        return NULL;
-    from_len = strlen(from);
-    to_len = strlen(to);
-
-    while ((offset = strstr(str_start, from)))
-    {
-        virBufferAdd(&buf, str_start, offset-str_start);
-        virBufferAdd(&buf, to, to_len);
-        str_start = offset + from_len;
-    }
-
-    virBufferAdd(&buf, str_start, -1);
-
-    if (virBufferError(&buf)) {
-        virBufferFreeAndReset(&buf);
-        return NULL;
-    }
-
-    return virBufferContentAndReset(&buf);
-}
-
-
 static int
 openvzReadFSConf(virDomainDefPtr def,
-                 int veid) {
-    int ret;
+                 virJSONValuePtr ctconf) {
     virDomainFSDefPtr fs = NULL;
-    char *veid_str = NULL;
-    char *temp = NULL;
-    const char *param;
-    unsigned long long barrier, limit;
+    const char *temp = NULL;
+    unsigned long long softlimit, hardlimit;
 
-    ret = openvzReadVPSConfigParam(veid, "OSTEMPLATE", &temp);
-    if (ret < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR,
-                       _("Could not read 'OSTEMPLATE' from config for container %d"),
-                       veid);
-        goto error;
-    } else if (ret > 0) {
+    if ((temp = virJSONValueObjectGetString(ctconf, "ostemplate"))) {
         if (VIR_ALLOC(fs) < 0)
             goto no_memory;
 
@@ -419,46 +326,40 @@ openvzReadFSConf(virDomainDefPtr def,
         fs->src = strdup(temp);
     } else {
         /* OSTEMPLATE was not found, VE was booted from a private dir directly */
-        ret = openvzReadVPSConfigParam(veid, "VE_PRIVATE", &temp);
-        if (ret <= 0) {
+        if (!(temp = virJSONValueObjectGetString(ctconf, "private"))) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not read 'VE_PRIVATE' from config for container %d"),
-                           veid);
+                           _("Could not get private area for container %d"),
+                           def->id);
             goto error;
         }
 
         if (VIR_ALLOC(fs) < 0)
             goto no_memory;
 
-        if (virAsprintf(&veid_str, "%d", veid) < 0)
-            goto no_memory;
-
         fs->type = VIR_DOMAIN_FS_TYPE_MOUNT;
-        fs->src = openvz_replace(temp, "$VEID", veid_str);
-
-        VIR_FREE(veid_str);
+        fs->src = strdup(temp);
     }
 
     fs->dst = strdup("/");
 
-    param = "DISKSPACE";
-    ret = openvzReadVPSConfigParam(veid, param, &temp);
-    if (ret > 0) {
-        if (openvzParseBarrierLimit(temp, &barrier, &limit)) {
+    virJSONValuePtr diskspace = virJSONValueObjectGet(ctconf, "diskspace");
+    if (diskspace) {
+        if (virJSONValueObjectGetNumberUlong(diskspace, "softlimit", &softlimit) < 0 ||
+            virJSONValueObjectGetNumberUlong(diskspace, "hardlimit", &hardlimit) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not read '%s' from config for container %d"),
-                           param, veid);
+                           _("Could not get disk quota for container %d"),
+                           def->id);
             goto error;
         } else {
             /* Ensure that we can multiply by 1024 without overflowing. */
-            if (barrier > ULLONG_MAX / 1024 ||
-                limit > ULLONG_MAX / 1024) {
+            if (softlimit > ULLONG_MAX / 1024 ||
+                hardlimit > ULLONG_MAX / 1024) {
                 virReportSystemError(VIR_ERR_OVERFLOW, "%s",
                                      _("Unable to parse quota"));
                 goto error;
             }
-            fs->space_soft_limit = barrier * 1024; /* unit is bytes */
-            fs->space_hard_limit = limit * 1024;   /* unit is bytes */
+            fs->space_soft_limit = softlimit * 1024; /* unit is bytes */
+            fs->space_hard_limit = hardlimit * 1024;   /* unit is bytes */
         }
     }
 
@@ -470,25 +371,18 @@ openvzReadFSConf(virDomainDefPtr def,
     def->fss[def->nfss++] = fs;
     fs = NULL;
 
-    VIR_FREE(temp);
-
     return 0;
 no_memory:
     virReportOOMError();
 error:
-    VIR_FREE(temp);
     virDomainFSDefFree(fs);
     return -1;
 }
 
-
 static int
-openvzReadMemConf(virDomainDefPtr def, int veid)
+openvzReadMemConf(virDomainDefPtr def, virJSONValuePtr ctconf)
 {
-    int ret = -1;
-    char *temp = NULL;
     unsigned long long barrier, limit;
-    const char *param;
     long kb_per_pages;
 
     kb_per_pages = openvzKBPerPages();
@@ -496,19 +390,17 @@ openvzReadMemConf(virDomainDefPtr def, int veid)
         goto error;
 
     /* Memory allocation guarantee */
-    param = "VMGUARPAGES";
-    ret = openvzReadVPSConfigParam(veid, param, &temp);
-    if (ret < 0) {
+    virJSONValuePtr vmguarpages = virJSONValueObjectGet(ctconf, "vmguarpages");
+    if (!vmguarpages) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
-                       _("Could not read '%s' from config for container %d"),
-                       param, veid);
+                       _("Could not get guaranteed memory for container %d"),
+                       def->id);
         goto error;
-    } else if (ret > 0) {
-        ret = openvzParseBarrierLimit(temp, &barrier, NULL);
-        if (ret < 0) {
+    } else {
+        if (virJSONValueObjectGetNumberUlong(vmguarpages, "barrier", &barrier) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not parse barrier of '%s' "
-                             "from config for container %d"), param, veid);
+                           _("Could not parse guaranteed memory "
+                             "for container %d"), def->id);
             goto error;
         }
         if (barrier == LONG_MAX)
@@ -518,19 +410,18 @@ openvzReadMemConf(virDomainDefPtr def, int veid)
     }
 
     /* Memory hard and soft limits */
-    param = "PRIVVMPAGES";
-    ret = openvzReadVPSConfigParam(veid, param, &temp);
-    if (ret < 0) {
+    virJSONValuePtr privvmpages = virJSONValueObjectGet(ctconf, "privvmpages");
+    if (!privvmpages) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
-                       _("Could not read '%s' from config for container %d"),
-                       param, veid);
+                       _("Could not get memory limits for container %d"),
+                       def->id);
         goto error;
-    } else if (ret > 0) {
-        ret = openvzParseBarrierLimit(temp, &barrier, &limit);
-        if (ret < 0) {
+    } else {
+        if (virJSONValueObjectGetNumberUlong(privvmpages, "barrier", &barrier) < 0 ||
+            virJSONValueObjectGetNumberUlong(privvmpages, "limit", &limit) < 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not parse barrier and limit of '%s' "
-                             "from config for container %d"), param, veid);
+                           _("Could not parse memory limits "
+                             "for container %d"), def->id);
             goto error;
         }
         if (barrier == LONG_MAX)
@@ -544,10 +435,9 @@ openvzReadMemConf(virDomainDefPtr def, int veid)
             def->mem.hard_limit = limit * kb_per_pages;
     }
 
-    ret = 0;
+    return 0;
 error:
-    VIR_FREE(temp);
-    return ret;
+    return -1;
 }
 
 
@@ -558,48 +448,53 @@ openvzFreeDriver(struct openvz_driver *driver)
     if (!driver)
         return;
 
+    virJSONValueFree(driver->jobj);
     virObjectUnref(driver->domains);
     virObjectUnref(driver->caps);
     VIR_FREE(driver);
 }
 
-
-
 int openvzLoadDomains(struct openvz_driver *driver) {
     int veid, ret;
-    char *status;
+    const char *status;
     char uuidstr[VIR_UUID_STRING_BUFLEN];
     virDomainObjPtr dom = NULL;
     virDomainDefPtr def = NULL;
     char *temp = NULL;
     char *outbuf = NULL;
-    char *line;
+    int count;
     virCommandPtr cmd = NULL;
 
     if (openvzAssignUUIDs() < 0)
         return -1;
 
-    cmd = virCommandNewArgList(VZLIST, "-a", "-ovpsid,status", "-H", NULL);
+    cmd = virCommandNewArgList(VZLIST, "-a", "--json",  NULL);
     virCommandSetOutputBuffer(cmd, &outbuf);
     if (virCommandRun(cmd, NULL) < 0)
         goto cleanup;
 
-    line = outbuf;
-    while (line[0] != '\0') {
+    driver->jobj = virJSONValueFromString(outbuf);
+    if (!driver->jobj)
+        goto cleanup;
+
+    count = virJSONValueArraySize(driver->jobj);
+    for (int i = 0; i < count; ++i) {
         unsigned int flags = 0;
-        if (virStrToLong_i(line, &status, 10, &veid) < 0 ||
-            *status++ != ' ' ||
-            (line = strchr(status, '\n')) == NULL) {
-            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-                           _("Failed to parse vzlist output"));
+
+        virJSONValuePtr ctconf = virJSONValueArrayGet(driver->jobj, i);
+        if (!ctconf)
             goto cleanup;
-        }
-        *line++ = '\0';
+
+        if (virJSONValueObjectGetNumberInt(ctconf, "veid", &veid) < 0)
+            goto cleanup;
 
         if (VIR_ALLOC(def) < 0)
             goto no_memory;
 
         def->virtType = VIR_DOMAIN_VIRT_OPENVZ;
+
+        if (!(status = virJSONValueObjectGetString(ctconf, "status")))
+            goto cleanup;
 
         if (STREQ(status, "stopped"))
             def->id = -1;
@@ -638,9 +533,9 @@ int openvzLoadDomains(struct openvz_driver *driver) {
 
         /* XXX load rest of VM config data .... */
 
-        openvzReadNetworkConf(def, veid);
-        openvzReadFSConf(def, veid);
-        openvzReadMemConf(def, veid);
+        openvzReadNetworkConf(def, ctconf);
+        openvzReadFSConf(def, ctconf);
+        openvzReadMemConf(def, ctconf);
 
         virUUIDFormat(def->uuid, uuidstr);
         flags = VIR_DOMAIN_OBJ_LIST_ADD_CHECK_LIVE;
@@ -665,6 +560,9 @@ int openvzLoadDomains(struct openvz_driver *driver) {
         }
         /* XXX OpenVZ doesn't appear to have concept of a transient domain */
         dom->persistent = 1;
+
+        /* attach container configuration as privateData */
+        dom->privateData = ctconf;
 
         virObjectUnlock(dom);
         dom = NULL;

@@ -73,6 +73,9 @@ testReadNetworkConf(const void *data ATTRIBUTE_UNUSED)
 {
     int result = -1;
     virDomainDefPtr def = NULL;
+    virJSONValuePtr ctconf = NULL;
+    char *jsonconf = NULL;
+    char *jsonfile = NULL;
     char *actual = NULL;
     virErrorPtr err = NULL;
     const char *expected =
@@ -108,7 +111,13 @@ testReadNetworkConf(const void *data ATTRIBUTE_UNUSED)
 
     def->virtType = VIR_DOMAIN_VIRT_OPENVZ;
 
-    if (openvzReadNetworkConf(def, 1) < 0) {
+    if (virAsprintf(&jsonfile, "%s/openvzutilstest.json", abs_srcdir) < 0)
+        goto cleanup;
+    if (virFileReadAll(jsonfile, 4096, &jsonconf) < 0)
+        goto cleanup;
+    ctconf = virJSONValueFromString(jsonconf);
+
+    if (openvzReadNetworkConf(def, ctconf) < 0) {
         err = virGetLastError();
         fprintf(stderr, "ERROR: %s\n", err != NULL ? err->message : "<unknown>");
         goto cleanup;
@@ -130,6 +139,9 @@ testReadNetworkConf(const void *data ATTRIBUTE_UNUSED)
     result = 0;
 
 cleanup:
+    virJSONValueFree(ctconf);
+    VIR_FREE(jsonconf);
+    VIR_FREE(jsonfile);
     VIR_FREE(actual);
     virDomainDefFree(def);
 

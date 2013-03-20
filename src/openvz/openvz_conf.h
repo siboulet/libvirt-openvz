@@ -32,7 +32,7 @@
 # include "internal.h"
 # include "domain_conf.h"
 # include "virthread.h"
-
+# include "virjson.h"
 
 /* OpenVZ commands - Replace with wrapper scripts later? */
 # define VZLIST  "/usr/sbin/vzlist"
@@ -44,6 +44,7 @@
 struct openvz_driver {
     virMutex lock;
 
+    virJSONValuePtr jobj;
     virCapsPtr caps;
     virDomainObjListPtr domains;
     int version;
@@ -67,6 +68,6 @@ int strtoI(const char *str);
 int openvzSetDefinedUUID(int vpsid, unsigned char *uuid);
 unsigned int openvzGetNodeCPUs(void);
 int openvzGetVEID(const char *name);
-int openvzReadNetworkConf(virDomainDefPtr def, int veid);
+int openvzReadNetworkConf(virDomainDefPtr def, virJSONValuePtr ctconf);
 
 #endif /* OPENVZ_CONF_H */

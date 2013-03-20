@@ -1,0 +1,187 @@
+  {
+    "ctid": 1,
+    "veid": 1,
+    "vpsid": 1,
+    "private": "/vz/private/1",
+    "root": "/vz/root/1",
+    "mount_opts": null,
+    "origin_sample": null,
+    "hostname": null,
+    "name": null,
+    "smart_name": 1,
+    "description": null,
+    "ostemplate": "rhel-5-lystor",
+    "ip": ["194.44.18.88"],
+    "nameserver": [],
+    "searchdomain": [],
+    "status": "stopped",
+    "kmemsize": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 184953241,
+      "limit": 203448565,
+      "failcnt": 0
+    },
+    "lockedpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 9030,
+      "limit": 9030,
+      "failcnt": 0
+    },
+    "privvmpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 360000,
+      "limit": 360000,
+      "failcnt": 0
+    },
+    "shmpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 15506,
+      "limit": 15506,
+      "failcnt": 0
+    },
+    "numproc": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 8000,
+      "limit": 8000,
+      "failcnt": 0
+    },
+    "physpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 0,
+      "limit": 2147483647,
+      "failcnt": 0
+    },
+    "vmguarpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 360000,
+      "limit": 360000,
+      "failcnt": 0
+    },
+    "oomguarpages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 360000,
+      "limit": 360000,
+      "failcnt": 0
+    },
+    "numtcpsock": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 8000,
+      "limit": 8000,
+      "failcnt": 0
+    },
+    "numflock": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 1000,
+      "limit": 1100,
+      "failcnt": 0
+    },
+    "numpty": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 512,
+      "limit": 512,
+      "failcnt": 0
+    },
+    "numsiginfo": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 1024,
+      "limit": 1024,
+      "failcnt": 0
+    },
+    "tcpsndbuf": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 28883080,
+      "limit": 61651080,
+      "failcnt": 0
+    },
+    "tcprcvbuf": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 28883080,
+      "limit": 61651080,
+      "failcnt": 0
+    },
+    "othersockbuf": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 14441540,
+      "limit": 47209540,
+      "failcnt": 0
+    },
+    "dgramrcvbuf": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 14441540,
+      "limit": 14441540,
+      "failcnt": 0
+    },
+    "numothersock": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 8000,
+      "limit": 8000,
+      "failcnt": 0
+    },
+    "dcachesize": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 40389343,
+      "limit": 41601024,
+      "failcnt": 0
+    },
+    "numfile": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 72224,
+      "limit": 72224,
+      "failcnt": 0
+    },
+    "numiptent": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 200,
+      "limit": 200,
+      "failcnt": 0
+    },
+    "swappages": {
+      "held": 0,
+      "maxheld": 0,
+      "barrier": 0,
+      "limit": 0,
+      "failcnt": 0
+    },
+    "diskspace": {
+      "usage": 0,
+      "softlimit": 107733379,
+      "hardlimit": 118506717
+    },
+    "diskinodes": {
+      "usage": 0,
+      "softlimit": 55287781,
+      "hardlimit": 60816560
+    },
+    "laverage": null,
+    "uptime": 0.000,
+    "cpulimit": 0,
+    "cpuunits": 150550,
+    "cpus": 0,
+    "ioprio": 0,
+    "onboot": true,
+    "bootorder": null,
+    "layout": "simfs",
+    "features": null,
+    "vswap": true,
+    "disabled": false
+  }
