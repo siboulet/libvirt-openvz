@@ -509,6 +509,9 @@ static int openvzDomainGetInfo(virDomainPtr dom,
     struct openvz_driver *driver = dom->conn->privateData;
     virDomainObjPtr vm;
     int state;
+    FILE *fp = NULL;
+    char *line = NULL;
+    size_t line_size = 0;
     int ret = -1;
 
     openvzDriverLock(driver);
@@ -527,22 +530,45 @@ static int openvzDomainGetInfo(virDomainPtr dom,
 
     if (info->state != VIR_DOMAIN_RUNNING) {
         info->cpuTime = 0;
+        info->memory = 0;
     } else {
         if (openvzGetProcessInfo(&(info->cpuTime), dom->id) < 0) {
             virReportError(VIR_ERR_OPERATION_FAILED,
                            _("cannot read cputime for domain %d"), dom->id);
             goto cleanup;
         }
+
+        /* get memory usage by looking at /proc/bc/CTID/meminfo */
+        char proc_ctid[32];
+        snprintf(proc_ctid, sizeof(proc_ctid), "/proc/bc/%d/meminfo", dom->id);
+
+        if ((fp = fopen(proc_ctid, "r")) == NULL) {
+            virReportError(VIR_ERR_OPERATION_FAILED,
+                           _("cannot read memory usage for domain %d"), dom->id);
+            goto cleanup;
+        }
+
+        while(getline(&line, &line_size, fp) > 0) {
+            unsigned long memfree;
+            if (sscanf(line, "MemFree: %lu kB", &memfree) == 1) {
+                if (memfree <= vm->def->mem.cur_balloon)
+                    info->memory = vm->def->mem.cur_balloon - memfree;
+                else
+                    info->memory = 0;
+                break;
+            }
+        }
     }
 
     info->maxMem = vm->def->mem.max_balloon;
-    info->memory = vm->def->mem.cur_balloon;
     info->nrVirtCpu = vm->def->vcpus;
     ret = 0;
 
 cleanup:
     if (vm)
         virObjectUnlock(vm);
+    VIR_FREE(line);
+    VIR_FORCE_FCLOSE(fp);
     return ret;
 }
 
