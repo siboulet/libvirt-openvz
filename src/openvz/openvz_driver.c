@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <fcntl.h>
 #include <paths.h>
 #include <pwd.h>
@@ -271,6 +272,129 @@ error:
     goto cleanup;
 }
 
+static int
+openvzDomainGetBlockInfo(virDomainPtr dom,
+                                    const char *path,
+                                    virDomainBlockInfoPtr info,
+                                    unsigned int flags)
+{
+    struct openvz_driver *driver = dom->conn->privateData;
+    virDomainObjPtr vm = NULL;
+    virCommandPtr cmd = NULL;
+    char *vzquota = NULL;
+    const char *private_area = NULL;
+    const char *root_area = NULL;
+    struct statfs sb;
+    struct stat st1, st2;
+    int ret = -1;
+
+    virCheckFlags(0, -1);
+
+    if (*path != '/')
+        goto cleanup;
+
+    openvzDriverLock(driver);
+    vm = virDomainObjListFindByUUID(driver->domains, dom->uuid);
+    openvzDriverUnlock(driver);
+
+    if (!vm) {
+        virReportError(VIR_ERR_NO_DOMAIN, "%s",
+                       _("no domain with matching uuid"));
+        goto cleanup;
+    }
+
+    /* check if container appears to be using disk quotas */
+    if (! virJSONValueObjectIsNull(vm->privateData, "diskspace")) {
+        /* get disk usage by parsing vzquota output */
+        cmd = virCommandNewArgList(VZQUOTA, "-b", "stat", NULL);
+        virCommandAddArgFormat(cmd, "%d", dom->id);
+        virCommandSetOutputBuffer(cmd, &vzquota);
+
+        if (virCommandRun(cmd, NULL) < 0)
+            goto cleanup;
+
+        if (sscanf(vzquota, " %llu %*s %llu", &info->allocation, &info->capacity) != 2)
+            goto cleanup;
+
+        /* vzquota output is in KB */
+        info->allocation *= 1024;
+        info->capacity *= 1024;
+
+    } else {
+        /* get disk usage by calling statfs on the container private area */
+        if (!(private_area = virJSONValueObjectGetString(vm->privateData, "private"))) {
+           virReportError(VIR_ERR_INTERNAL_ERROR,
+                          _("Could not get private area for container %d"),
+                          dom->id);
+            goto cleanup;
+        }
+
+        if (!(root_area = virJSONValueObjectGetString(vm->privateData, "root"))) {
+           virReportError(VIR_ERR_INTERNAL_ERROR,
+                          _("Could not get root area for container %d"),
+                          dom->id);
+            goto cleanup;
+        }
+
+        /* prevent calling statfs when container is not mounted */
+        if (stat(private_area, &st1) == -1 || stat(root_area, &st2) == -1)
+            goto cleanup;
+
+        if (st1.st_rdev != st2.st_rdev || st1.st_ino != st2.st_ino) {
+            virReportError(VIR_ERR_OPERATION_INVALID,
+                           "%s", _("container is not mounted"));
+            goto cleanup;
+        }
+
+        if (statfs(private_area, &sb) == -1)
+            goto cleanup;
+
+        info->capacity = sb.f_blocks * sb.f_bsize;
+        info->allocation = info->capacity - (sb.f_bfree * sb.f_bsize);
+    }
+
+    ret = 0;
+cleanup:
+    if (vm)
+        virObjectUnlock(vm);
+    virCommandFree(cmd);
+    VIR_FREE(vzquota);
+    return ret;
+}
+
+static int
+openvzDomainBlockStats(virDomainPtr dom,
+                     const char *path,
+                     struct _virDomainBlockStats *stats)
+{
+    /* get I/O stats from /proc/bc/CTID/ioacct */
+    FILE *fp;
+    char *line = NULL;
+    size_t line_size = 0;
+    char proc_veid[32];
+    int ret = -1;
+
+    if (*path != '/')
+        return -1;
+
+    snprintf(proc_veid, sizeof(proc_veid), "/proc/bc/%d/ioacct", dom->id);
+
+    if ((fp = fopen(proc_veid, "r")) == NULL)
+        return -1;
+
+    if (getline(&line, &line_size, fp) < 0 || sscanf(line, " read %llu", &stats->rd_bytes) != 1)
+        goto cleanup;
+
+    if (getline(&line, &line_size, fp) < 0 || sscanf(line, " write %llu", &stats->wr_bytes) != 1)
+        goto cleanup;
+
+    ret = 0;
+cleanup:
+    VIR_FREE(line);
+    VIR_FORCE_FCLOSE(fp);
+
+    return ret;
+}
 
 static virDomainPtr openvzDomainLookupByID(virConnectPtr conn,
                                            int id) {
@@ -2178,6 +2302,8 @@ static virDriver openvzDriver = {
     .isAlive = openvzIsAlive, /* 0.9.8 */
     .domainUpdateDeviceFlags = openvzDomainUpdateDeviceFlags, /* 0.9.13 */
     .domainGetHostname = openvzDomainGetHostname, /* 0.10.0 */
+    .domainGetBlockInfo = openvzDomainGetBlockInfo, /* 1.0.3 */
+    .domainBlockStats = openvzDomainBlockStats, /* 1.0.3 */
 };
 
 int openvzRegister(void) {

@@ -312,70 +312,39 @@ error:
 }
 
 static int
-openvzReadFSConf(virDomainDefPtr def,
+openvzReadDiskConf(virDomainDefPtr def,
                  virJSONValuePtr ctconf) {
-    virDomainFSDefPtr fs = NULL;
-    const char *temp = NULL;
-    unsigned long long softlimit, hardlimit;
+    virDomainDiskDefPtr disk = NULL;
+    const char *private_area = NULL;
 
-    if ((temp = virJSONValueObjectGetString(ctconf, "ostemplate"))) {
-        if (VIR_ALLOC(fs) < 0)
-            goto no_memory;
-
-        fs->type = VIR_DOMAIN_FS_TYPE_TEMPLATE;
-        fs->src = strdup(temp);
-    } else {
-        /* OSTEMPLATE was not found, VE was booted from a private dir directly */
-        if (!(temp = virJSONValueObjectGetString(ctconf, "private"))) {
-            virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not get private area for container %d"),
-                           def->id);
-            goto error;
-        }
-
-        if (VIR_ALLOC(fs) < 0)
-            goto no_memory;
-
-        fs->type = VIR_DOMAIN_FS_TYPE_MOUNT;
-        fs->src = strdup(temp);
+    if (!(private_area = virJSONValueObjectGetString(ctconf, "private"))) {
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("Could not get private area for container %d"),
+                       def->id);
+        goto error;
     }
 
-    fs->dst = strdup("/");
-
-    virJSONValuePtr diskspace = virJSONValueObjectGet(ctconf, "diskspace");
-    if (diskspace) {
-        if (virJSONValueObjectGetNumberUlong(diskspace, "softlimit", &softlimit) < 0 ||
-            virJSONValueObjectGetNumberUlong(diskspace, "hardlimit", &hardlimit) < 0) {
-            virReportError(VIR_ERR_INTERNAL_ERROR,
-                           _("Could not get disk quota for container %d"),
-                           def->id);
-            goto error;
-        } else {
-            /* Ensure that we can multiply by 1024 without overflowing. */
-            if (softlimit > ULLONG_MAX / 1024 ||
-                hardlimit > ULLONG_MAX / 1024) {
-                virReportSystemError(VIR_ERR_OVERFLOW, "%s",
-                                     _("Unable to parse quota"));
-                goto error;
-            }
-            fs->space_soft_limit = softlimit * 1024; /* unit is bytes */
-            fs->space_hard_limit = hardlimit * 1024;   /* unit is bytes */
-        }
-    }
-
-    if (fs->src == NULL || fs->dst == NULL)
+    if (VIR_ALLOC(disk) < 0)
         goto no_memory;
 
-    if (VIR_REALLOC_N(def->fss, def->nfss + 1) < 0)
+    disk->device = VIR_DOMAIN_DISK_DEVICE_DISK;
+    disk->type = VIR_DOMAIN_DISK_TYPE_FILE;
+    disk->src = strdup(private_area);
+    disk->dst = strdup("/");
+
+    if (disk->src == NULL || disk->dst == NULL)
         goto no_memory;
-    def->fss[def->nfss++] = fs;
-    fs = NULL;
+
+    if (VIR_REALLOC_N(def->disks, def->ndisks+1) < 0)
+        goto no_memory;
+    def->disks[def->ndisks++] = disk;
+    disk = NULL;
 
     return 0;
 no_memory:
     virReportOOMError();
 error:
-    virDomainFSDefFree(fs);
+    virDomainDiskDefFree(disk);
     return -1;
 }
 
@@ -534,7 +503,7 @@ int openvzLoadDomains(struct openvz_driver *driver) {
         /* XXX load rest of VM config data .... */
 
         openvzReadNetworkConf(def, ctconf);
-        openvzReadFSConf(def, ctconf);
+        openvzReadDiskConf(def, ctconf);
         openvzReadMemConf(def, ctconf);
 
         virUUIDFormat(def->uuid, uuidstr);
