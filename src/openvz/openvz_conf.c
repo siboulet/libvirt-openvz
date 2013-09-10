@@ -353,13 +353,14 @@ openvzReadMemConf(virDomainDefPtr def, virJSONValuePtr ctconf)
 {
     unsigned long long barrier, limit;
     long kb_per_pages;
+    virJSONValuePtr privvmpages = NULL, physpages = NULL, vmguarpages = NULL;
 
     kb_per_pages = openvzKBPerPages();
     if (kb_per_pages < 0)
         goto error;
 
     /* Memory allocation guarantee */
-    virJSONValuePtr vmguarpages = virJSONValueObjectGet(ctconf, "vmguarpages");
+    vmguarpages = virJSONValueObjectGet(ctconf, "vmguarpages");
     if (!vmguarpages) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("Could not get guaranteed memory for container %d"),
@@ -379,7 +380,7 @@ openvzReadMemConf(virDomainDefPtr def, virJSONValuePtr ctconf)
     }
 
     /* Memory hard and soft limits */
-    virJSONValuePtr privvmpages = virJSONValueObjectGet(ctconf, "privvmpages");
+    privvmpages = virJSONValueObjectGet(ctconf, "privvmpages");
     if (!privvmpages) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        _("Could not get memory limits for container %d"),
@@ -406,7 +407,7 @@ openvzReadMemConf(virDomainDefPtr def, virJSONValuePtr ctconf)
 
     if (def->mem.soft_limit == 0 && def->mem.hard_limit == 0) {
         /* check for VSwap containers memory limit */
-        virJSONValuePtr physpages = virJSONValueObjectGet(ctconf, "physpages");
+        physpages = virJSONValueObjectGet(ctconf, "physpages");
         if (physpages) {
             if (virJSONValueObjectGetNumberUlong(physpages, "limit", &limit) < 0) {
                 virReportError(VIR_ERR_INTERNAL_ERROR,
